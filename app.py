@@ -1,3 +1,5 @@
-from componentsDetection.logger import logging
+import os
+from componentsDetection.pipeline.training_pipeline import TrainPipeline
 
-logging.info("Welcome to custom log!")
+obj = TrainPipeline()
+obj.run_pipeline()
