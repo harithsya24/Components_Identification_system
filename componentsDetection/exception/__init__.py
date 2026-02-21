@@ -1,15 +1,15 @@
 import sys
 import traceback
 
-def error_message_detail(error):
-    _, _, exc_tb = sys.exc_info()
-    
+def error_message_detail(error, error_detail: sys):
+    _, _, exc_tb = error_detail.exc_info()
+
     if exc_tb is None:
-        return f"Error: {str(error)} (No traceback available)"
-    
+        return f"{str(error)}"
+
     file_name = exc_tb.tb_frame.f_code.co_filename
     line_number = exc_tb.tb_lineno
-    
+
     return (
         f"Error occurred in python script "
         f"[{file_name}] at line [{line_number}] "
