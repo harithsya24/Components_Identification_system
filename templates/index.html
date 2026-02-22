@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CIS · Component Detection</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #08090d;
+    --panel: #0e1118;
+    --border: #1c2133;
+    --border-bright: #2a3a5c;
+    --green: #00ff88;
+    --green-dim: rgba(0,255,136,0.08);
+    --green-glow: rgba(0,255,136,0.2);
+    --text: #dce4f0;
+    --muted: #4a5570;
+    --red: #ff3d57;
+    --amber: #ffb800;
+    --blue: #4d9fff;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    cursor: crosshair;
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* ---- NAV ---- */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 32px;
+    height: 56px;
+    background: rgba(8,9,13,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 3px;
+    color: var(--green);
+    text-shadow: 0 0 20px var(--green-glow);
+  }
+
+  .nav-tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px;
+  }
+
+  .nav-tab {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 7px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    transition: all 0.2s;
+    letter-spacing: 1px;
+  }
+
+  .nav-tab:hover { color: var(--text); }
+  .nav-tab.active {
+    background: var(--green-dim);
+    color: var(--green);
+    border: 1px solid rgba(0,255,136,0.2);
+    text-shadow: 0 0 10px var(--green-glow);
+  }
+
+  .nav-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: blink 2s ease-in-out infinite;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ---- PAGES ---- */
+  .page {
+    display: none;
+    padding-top: 56px;
+    min-height: 100vh;
+  }
+  .page.active { display: flex; flex-direction: column; }
+
+  /* ===== UPLOAD PAGE ===== */
+  #page-upload {
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    padding: 80px 40px 40px;
+  }
+
+  .upload-header {
+    text-align: center;
+    animation: fadeDown 0.5s ease forwards;
+  }
+
+  .upload-eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 4px;
+    color: var(--green);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    opacity: 0.7;
+  }
+
+  .upload-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(48px, 8vw, 90px);
+    letter-spacing: 4px;
+    line-height: 0.95;
+    color: var(--text);
+  }
+
+  .upload-title span { color: var(--green); text-shadow: 0 0 30px var(--green-glow); }
+
+  /* Main detection workspace */
+  .workspace {
+    width: 100%;
+    max-width: 1100px;
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 16px;
+    animation: fadeUp 0.5s ease forwards 0.2s;
+    opacity: 0;
+  }
+
+  /* Drop zone */
+  .drop-zone {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    position: relative;
+    overflow: hidden;
+    aspect-ratio: 4/3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+
+  .drop-zone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: 
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.4;
+  }
+
+  /* Corner decorations */
+  .drop-zone::after {
+    content: '';
+    position: absolute;
+    inset: 12px;
+    border: 1px solid transparent;
+    border-top-color: rgba(0,255,136,0.15);
+    border-left-color: rgba(0,255,136,0.15);
+    border-radius: 4px;
+    pointer-events: none;
+  }
+
+  .corner {
+    position: absolute;
+    width: 20px; height: 20px;
+    border-color: var(--green);
+    border-style: solid;
+    opacity: 0.4;
+  }
+  .corner-tl { top:12px; left:12px; border-width:2px 0 0 2px; border-radius:2px 0 0 0; }
+  .corner-tr { top:12px; right:12px; border-width:2px 2px 0 0; border-radius:0 2px 0 0; }
+  .corner-bl { bottom:12px; left:12px; border-width:0 0 2px 2px; border-radius:0 0 0 2px; }
+  .corner-br { bottom:12px; right:12px; border-width:0 2px 2px 0; border-radius:0 0 2px 0; }
+
+  .drop-zone:hover { border-color: rgba(0,255,136,0.3); }
+  .drop-zone:hover .corner { opacity: 1; transition: opacity 0.2s; }
+  .drop-zone.drag-over { border-color: var(--green); background: rgba(0,255,136,0.03); }
+
+  .drop-prompt {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .drop-icon {
+    width: 64px; height: 64px;
+    border: 1px solid var(--border-bright);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    background: var(--bg);
+  }
+
+  .drop-text {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  .drop-subtext {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  .drop-btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 10px 24px;
+    background: var(--green-dim);
+    color: var(--green);
+    border: 1px solid rgba(0,255,136,0.25);
+    border-radius: 6px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+
+  .drop-btn:hover {
+    background: rgba(0,255,136,0.15);
+    box-shadow: 0 0 20px var(--green-glow);
+  }
+
+  /* Image canvas area */
+  .image-canvas {
+    display: none;
+    width: 100%;
+    height: 100%;
+    position: relative;
+  }
+
+  #uploaded-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+
+  /* Detection boxes */
+  .det-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .box {
+    position: absolute;
+    border: 2px solid var(--green);
+    transition: all 0.3s ease;
+  }
+
+  .box-label {
+    position: absolute;
+    top: -26px;
+    left: -1px;
+    background: var(--green);
+    color: #000;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    white-space: nowrap;
+    letter-spacing: 0.5px;
+  }
+
+  .box.purple { border-color: #9d60ff; }
+  .box.purple .box-label { background: #9d60ff; color: #fff; }
+  .box.amber { border-color: var(--amber); }
+  .box.amber .box-label { background: var(--amber); color: #000; }
+  .box.blue { border-color: var(--blue); }
+  .box.blue .box-label { background: var(--blue); color: #fff; }
+  .box.red { border-color: var(--red); }
+  .box.red .box-label { background: var(--red); color: #fff; }
+
+  /* Scan animation */
+  .scan-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--green), transparent);
+    box-shadow: 0 0 10px var(--green);
+    animation: scan 1.2s linear forwards;
+    display: none;
+    z-index: 10;
+  }
+
+  @keyframes scan {
+    from { top: 0; opacity: 1; }
+    to { top: 100%; opacity: 0; }
+  }
+
+  /* Results panel */
+  .results-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .panel-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .count-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 100px;
+    background: var(--green-dim);
+    color: var(--green);
+    border: 1px solid rgba(0,255,136,0.2);
+  }
+
+  .panel-body {
+    flex: 1;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+  }
+
+  .empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-align: center;
+    padding: 40px;
+  }
+
+  .empty-icon { font-size: 28px; opacity: 0.4; }
+
+  .result-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: slideRight 0.3s ease forwards;
+    opacity: 0;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+
+  .result-item:hover { border-color: var(--border-bright); }
+
+  .result-item.hovered { border-color: var(--green) !important; }
+
+  .result-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .result-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .result-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .result-conf {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .result-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .result-fill {
+    height: 100%;
+    border-radius: 2px;
+    width: 0;
+    transition: width 0.8s cubic-bezier(0.34,1.56,0.64,1);
+  }
+
+  .panel-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+  }
+
+  .action-btn {
+    flex: 1;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 9px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+
+  .action-btn:hover { color: var(--text); border-color: var(--border-bright); }
+  .action-btn.primary {
+    background: var(--green-dim);
+    color: var(--green);
+    border-color: rgba(0,255,136,0.25);
+  }
+  .action-btn.primary:hover { background: rgba(0,255,136,0.15); }
+
+  /* ===== LIVE PAGE ===== */
+  #page-live {
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 24px;
+    padding: 80px 40px 40px;
+    position: relative;
+  }
+
+  .live-header {
+    text-align: center;
+    position: relative;
+    z-index: 2;
+  }
+
+  .live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--red);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    padding: 5px 14px;
+    border: 1px solid rgba(255,61,87,0.3);
+    border-radius: 100px;
+    background: rgba(255,61,87,0.05);
+  }
+
+  .live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 8px var(--red);
+    animation: blink 1s ease-in-out infinite;
+  }
+
+  .live-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(40px, 7vw, 80px);
+    letter-spacing: 4px;
+    color: var(--text);
+  }
+
+  .live-workspace {
+    width: 100%;
+    max-width: 1100px;
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 16px;
+  }
+
+  /* Camera viewport */
+  .camera-viewport {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    aspect-ratio: 16/9;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #camera-feed {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+    transform: scaleX(-1);
+  }
+
+  #camera-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    display: none;
+  }
+
+  .camera-off {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    text-align: center;
+    position: relative;
+    z-index: 2;
+    padding: 40px;
+  }
+
+  .camera-icon-wrap {
+    width: 80px; height: 80px;
+    border: 1px solid var(--border-bright);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    background: var(--bg);
+    position: relative;
+  }
+
+  .camera-icon-wrap::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    border: 1px dashed var(--border);
+    border-radius: 20px;
+    animation: rotate 8s linear infinite;
+  }
+
+  @keyframes rotate { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
+  .camera-off-text { font-size: 16px; font-weight: 500; }
+  .camera-off-sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .start-camera-btn {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 14px 36px;
+    background: transparent;
+    color: var(--red);
+    border: 1px solid rgba(255,61,87,0.4);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .start-camera-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(255,61,87,0.06);
+  }
+
+  .start-camera-btn:hover {
+    background: rgba(255,61,87,0.1);
+    box-shadow: 0 0 30px rgba(255,61,87,0.2);
+  }
+
+  /* Camera overlay elements */
+  .cam-corner {
+    position: absolute;
+    width: 24px; height: 24px;
+    border-color: rgba(255,61,87,0.5);
+    border-style: solid;
+    pointer-events: none;
+    z-index: 5;
+    transition: border-color 0.3s;
+  }
+
+  .cam-corner.active { border-color: var(--red); }
+  .cam-corner-tl { top:14px; left:14px; border-width:2px 0 0 2px; border-radius:2px 0 0 0; }
+  .cam-corner-tr { top:14px; right:14px; border-width:2px 2px 0 0; border-radius:0 2px 0 0; }
+  .cam-corner-bl { bottom:14px; left:14px; border-width:0 0 2px 2px; border-radius:0 0 0 2px; }
+  .cam-corner-br { bottom:14px; right:14px; border-width:0 2px 2px 0; border-radius:0 0 2px 0; }
+
+  .cam-info-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 10px 16px;
+    background: linear-gradient(to top, rgba(8,9,13,0.9), transparent);
+    display: none;
+    z-index: 6;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .cam-info-bar.visible { display: flex; }
+
+  .cam-fps {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--green);
+  }
+
+  .cam-live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--red);
+  }
+
+  /* Live sidebar */
+  .live-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .live-controls {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .ctrl-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 10px;
+    margin-bottom: 4px;
+  }
+
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .ctrl-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  .ctrl-val {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    margin-top: 4px;
+  }
+
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--green);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 8px var(--green-glow);
+  }
+
+  .stop-btn {
+    width: 100%;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 10px;
+    background: rgba(255,61,87,0.08);
+    color: var(--red);
+    border: 1px solid rgba(255,61,87,0.3);
+    border-radius: 6px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.2s;
+    display: none;
+  }
+
+  .stop-btn:hover { background: rgba(255,61,87,0.15); }
+  .stop-btn.visible { display: block; }
+
+  /* Live detections list */
+  .live-detections {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    flex: 1;
+  }
+
+  .live-det-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .live-det-list {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+
+  .live-det-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--bg);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-size: 12px;
+    animation: fadeRight 0.2s ease forwards;
+  }
+
+  @keyframes fadeRight {
+    from { opacity:0; transform: translateX(-8px); }
+    to { opacity:1; transform: translateX(0); }
+  }
+
+  .live-dot-col {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .live-det-name { flex: 1; font-weight: 500; }
+  .live-det-conf {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--green);
+  }
+
+  /* Animations */
+  @keyframes fadeDown {
+    from { opacity:0; transform: translateY(-16px); }
+    to { opacity:1; transform: translateY(0); }
+  }
+
+  @keyframes fadeUp {
+    from { opacity:0; transform: translateY(16px); }
+    to { opacity:1; transform: translateY(0); }
+  }
+
+  @keyframes slideRight {
+    from { opacity:0; transform: translateX(-10px); }
+    to { opacity:1; transform: translateX(0); }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  #file-input { display: none; }
+
+  @media (max-width: 768px) {
+    .workspace, .live-workspace { grid-template-columns: 1fr; }
+    nav { padding: 0 16px; }
+    .nav-logo { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">CIS</div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="goTo('upload')">/</button>
+    <button class="nav-tab" onclick="goTo('live')">/live</button>
+  </div>
+  <div class="nav-status">
+    <div class="dot"></div>
+    <span>MODEL LOADED</span>
+  </div>
+</nav>
+
+<input type="file" id="file-input" accept="image/*" onchange="handleFileSelect(event)">
+
+<!-- ===== UPLOAD PAGE ===== -->
+<div class="page active" id="page-upload">
+  <div class="upload-header">
+    <div class="upload-eyebrow">// component detection</div>
+    <h1 class="upload-title">DETECT<br><span>COMPONENTS</span></h1>
+  </div>
+
+  <div class="workspace">
+    <!-- Drop Zone -->
+    <div class="drop-zone" id="drop-zone"
+      onclick="triggerUpload()"
+      ondragover="onDragOver(event)"
+      ondragleave="onDragLeave(event)"
+      ondrop="onDrop(event)">
+      <div class="corner corner-tl"></div>
+      <div class="corner corner-tr"></div>
+      <div class="corner corner-bl"></div>
+      <div class="corner corner-br"></div>
+      <div class="scan-line" id="scan-line"></div>
+
+      <!-- Prompt -->
+      <div class="drop-prompt" id="drop-prompt">
+        <div class="drop-icon">🖼️</div>
+        <div class="drop-text">Drop image here</div>
+        <div class="drop-subtext">PNG · JPG · WEBP · BMP</div>
+        <button class="drop-btn" onclick="triggerUpload(); event.stopPropagation()">BROWSE FILE</button>
+      </div>
+
+      <!-- Image canvas -->
+      <div class="image-canvas" id="image-canvas">
+        <img id="uploaded-img" src="" alt="uploaded">
+        <div class="det-overlay" id="det-overlay"></div>
+      </div>
+    </div>
+
+    <!-- Results Panel -->
+    <div class="results-panel">
+      <div class="panel-header">
+        <div class="panel-title">DETECTIONS</div>
+        <div class="count-badge" id="count-badge">0</div>
+      </div>
+      <div class="panel-body" id="results-body">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon">🔬</div>
+          <div>Upload an image<br>to begin detection</div>
+        </div>
+      </div>
+      <div class="panel-footer">
+        <button class="action-btn" id="clear-btn" onclick="clearImage()" style="display:none">CLEAR</button>
+        <button class="action-btn primary" id="detect-btn" onclick="runDetection()" style="display:none">▶ DETECT</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ===== LIVE PAGE ===== -->
+<div class="page" id="page-live">
+  <div class="live-header">
+    <div class="live-badge"><div class="live-dot"></div> LIVE CAMERA</div>
+    <h1 class="live-title">REAL·TIME DETECTION</h1>
+  </div>
+
+  <div class="live-workspace">
+    <!-- Camera viewport -->
+    <div class="camera-viewport" id="camera-viewport">
+      <div class="cam-corner cam-corner-tl" id="cc-tl"></div>
+      <div class="cam-corner cam-corner-tr" id="cc-tr"></div>
+      <div class="cam-corner cam-corner-bl" id="cc-bl"></div>
+      <div class="cam-corner cam-corner-br" id="cc-br"></div>
+
+      <video id="camera-feed" autoplay muted playsinline></video>
+      <canvas id="camera-canvas"></canvas>
+
+      <div class="cam-info-bar" id="cam-info-bar">
+        <div class="cam-fps" id="fps-display">30 FPS</div>
+        <div class="cam-live-indicator"><div class="live-dot"></div> RECORDING</div>
+      </div>
+
+      <div class="camera-off" id="camera-off">
+        <div class="camera-icon-wrap">📷</div>
+        <div class="camera-off-text">Camera is off</div>
+        <div class="camera-off-sub">Click below to start live detection</div>
+        <button class="start-camera-btn" onclick="startCamera()">START CAMERA</button>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="live-sidebar">
+      <div class="live-controls">
+        <div class="ctrl-title">CONTROLS</div>
+        <div class="ctrl-row">
+          <div class="ctrl-label">Confidence</div>
+          <div class="ctrl-val" id="conf-val">0.50</div>
+        </div>
+        <input type="range" min="10" max="95" value="50" oninput="updateConf(this.value)">
+
+        <div class="ctrl-row">
+          <div class="ctrl-label">IOU Threshold</div>
+          <div class="ctrl-val" id="iou-val">0.45</div>
+        </div>
+        <input type="range" min="10" max="90" value="45" oninput="updateIOU(this.value)">
+
+        <div class="ctrl-row">
+          <div class="ctrl-label">Boxes</div>
+          <div class="ctrl-val">VISIBLE</div>
+        </div>
+
+        <button class="stop-btn" id="stop-btn" onclick="stopCamera()">■ STOP</button>
+      </div>
+
+      <!-- Live detections -->
+      <div class="live-detections">
+        <div class="live-det-header">
+          <span>LIVE FEED</span>
+          <span id="live-count" style="color:var(--green)">0</span>
+        </div>
+        <div class="live-det-list" id="live-det-list">
+          <div style="text-align:center;color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:11px;padding:20px;">
+            Camera not active
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+  // ===================== ROUTING =====================
+  function goTo(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    const tabs = document.querySelectorAll('.nav-tab');
+    if (page === 'upload') tabs[0].classList.add('active');
+    else tabs[1].classList.add('active');
+  }
+
+  // ===================== UPLOAD PAGE =====================
+  const COLORS = ['green', 'purple', 'amber', 'blue', 'red'];
+  const COLOR_HEX = {
+    green: '#00ff88', purple: '#9d60ff', amber: '#ffb800', blue: '#4d9fff', red: '#ff3d57'
+  };
+
+  const DEMO_CLASSES = [
+    { name: 'Resistor', conf: 0.94 },
+    { name: 'Capacitor', conf: 0.88 },
+    { name: 'IC Chip', conf: 0.91 },
+    { name: 'Diode', conf: 0.76 },
+    { name: 'LED', conf: 0.83 },
+    { name: 'Transistor', conf: 0.79 },
+  ];
+
+  let hasImage = false;
+
+  function triggerUpload() {
+    document.getElementById('file-input').click();
+  }
+
+  function onDragOver(e) {
+    e.preventDefault();
+    document.getElementById('drop-zone').classList.add('drag-over');
+  }
+
+  function onDragLeave() {
+    document.getElementById('drop-zone').classList.remove('drag-over');
+  }
+
+  function onDrop(e) {
+    e.preventDefault();
+    document.getElementById('drop-zone').classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) loadImage(file);
+  }
+
+  function handleFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) loadImage(file);
+    e.target.value = '';
+  }
+
+  function loadImage(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      document.getElementById('uploaded-img').src = e.target.result;
+      document.getElementById('drop-prompt').style.display = 'none';
+      document.getElementById('image-canvas').style.display = 'block';
+      document.getElementById('clear-btn').style.display = 'block';
+      document.getElementById('detect-btn').style.display = 'block';
+      document.getElementById('det-overlay').innerHTML = '';
+      document.getElementById('results-body').innerHTML = '<div class="empty-state"><div class="empty-icon">⚡</div><div>Click DETECT to<br>run inference</div></div>';
+      document.getElementById('count-badge').textContent = '0';
+      hasImage = true;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function clearImage() {
+    document.getElementById('drop-prompt').style.display = 'flex';
+    document.getElementById('image-canvas').style.display = 'none';
+    document.getElementById('clear-btn').style.display = 'none';
+    document.getElementById('detect-btn').style.display = 'none';
+    document.getElementById('det-overlay').innerHTML = '';
+    document.getElementById('results-body').innerHTML = '<div class="empty-state"><div class="empty-icon">🔬</div><div>Upload an image<br>to begin detection</div></div>';
+    document.getElementById('count-badge').textContent = '0';
+    hasImage = false;
+  }
+
+  function runDetection() {
+    if (!hasImage) return;
+
+    const btn = document.getElementById('detect-btn');
+    btn.textContent = '⟳ DETECTING...';
+    btn.disabled = true;
+
+    // Show scan line
+    const sl = document.getElementById('scan-line');
+    sl.style.display = 'block';
+    sl.style.animation = 'none';
+    sl.offsetHeight;
+    sl.style.animation = 'scan 1.2s linear forwards';
+
+    setTimeout(() => {
+      sl.style.display = 'none';
+      showResults();
+      btn.textContent = '▶ DETECT';
+      btn.disabled = false;
+    }, 1300);
+  }
+
+  function showResults() {
+    const overlay = document.getElementById('det-overlay');
+    overlay.innerHTML = '';
+
+    // Random subset of detections
+    const n = 3 + Math.floor(Math.random() * 3);
+    const picks = [...DEMO_CLASSES].sort(() => Math.random() - 0.5).slice(0, n);
+
+    // Place non-overlapping boxes
+    const placed = [];
+    const resultsBody = document.getElementById('results-body');
+    resultsBody.innerHTML = '';
+
+    picks.forEach((cls, i) => {
+      const color = COLORS[i % COLORS.length];
+      const conf = (cls.conf - 0.04 + Math.random() * 0.08).toFixed(2);
+      const w = 16 + Math.random() * 14;
+      const h = 18 + Math.random() * 14;
+      const x = 5 + Math.random() * (85 - w);
+      const y = 10 + Math.random() * (80 - h);
+
+      // Create box
+      const box = document.createElement('div');
+      box.className = `box ${color}`;
+      box.style.left = x + '%';
+      box.style.top = y + '%';
+      box.style.width = w + '%';
+      box.style.height = h + '%';
+      box.style.opacity = '0';
+      box.style.transition = 'opacity 0.3s ease';
+
+      const label = document.createElement('div');
+      label.className = 'box-label';
+      label.textContent = `${cls.name} ${conf}`;
+      box.appendChild(label);
+      overlay.appendChild(box);
+
+      setTimeout(() => { box.style.opacity = '1'; }, i * 180);
+
+      // Create result item
+      const item = document.createElement('div');
+      item.className = 'result-item';
+      item.style.animationDelay = (i * 0.1) + 's';
+      item.innerHTML = `
+        <div class="result-top">
+          <div class="result-name">
+            <div class="result-dot" style="background:${COLOR_HEX[color]}; box-shadow: 0 0 6px ${COLOR_HEX[color]}"></div>
+            ${cls.name}
+          </div>
+          <div class="result-conf" style="color:${COLOR_HEX[color]}">${Math.round(conf * 100)}%</div>
+        </div>
+        <div class="result-bar">
+          <div class="result-fill" style="background:${COLOR_HEX[color]}" data-w="${Math.round(conf * 100)}%"></div>
+        </div>
+      `;
+
+      item.addEventListener('mouseenter', () => {
+        box.style.boxShadow = `0 0 12px ${COLOR_HEX[color]}`;
+        item.classList.add('hovered');
+      });
+      item.addEventListener('mouseleave', () => {
+        box.style.boxShadow = '';
+        item.classList.remove('hovered');
+      });
+
+      resultsBody.appendChild(item);
+    });
+
+    document.getElementById('count-badge').textContent = picks.length;
+
+    // Animate bars
+    setTimeout(() => {
+      document.querySelectorAll('.result-fill').forEach(f => {
+        f.style.width = f.dataset.w;
+        f.style.transition = 'width 0.9s cubic-bezier(0.34,1.2,0.64,1)';
+      });
+    }, 200);
+  }
+
+
+  // ===================== LIVE PAGE =====================
+  let stream = null;
+  let animFrame = null;
+  let fpsTimer = null;
+  let frameCount = 0;
+  let detecting = false;
+
+  // Demo detection data for live simulation
+  const LIVE_CLASSES = ['Resistor', 'Capacitor', 'IC Chip', 'Diode', 'LED', 'Transistor', 'Crystal', 'Inductor'];
+
+  function updateConf(v) {
+    document.getElementById('conf-val').textContent = (v / 100).toFixed(2);
+  }
+
+  function updateIOU(v) {
+    document.getElementById('iou-val').textContent = (v / 100).toFixed(2);
+  }
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: 1280, height: 720 } });
+      const video = document.getElementById('camera-feed');
+      video.srcObject = stream;
+      video.style.display = 'block';
+
+      document.getElementById('camera-off').style.display = 'none';
+      document.getElementById('cam-info-bar').classList.add('visible');
+      document.getElementById('stop-btn').classList.add('visible');
+
+      document.querySelectorAll('.cam-corner').forEach(c => c.classList.add('active'));
+
+      // FPS counter
+      fpsTimer = setInterval(() => {
+        document.getElementById('fps-display').textContent = frameCount + ' FPS';
+        frameCount = 0;
+      }, 1000);
+
+      // Simulate detections
+      detecting = true;
+      simulateLiveDetections();
+
+    } catch (err) {
+      alert('Camera access denied. Please allow camera permissions and try again.');
+    }
+  }
+
+  function stopCamera() {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    detecting = false;
+    clearInterval(fpsTimer);
+    cancelAnimationFrame(animFrame);
+
+    document.getElementById('camera-feed').style.display = 'none';
+    document.getElementById('camera-off').style.display = 'flex';
+    document.getElementById('cam-info-bar').classList.remove('visible');
+    document.getElementById('stop-btn').classList.remove('visible');
+    document.querySelectorAll('.cam-corner').forEach(c => c.classList.remove('active'));
+    document.getElementById('live-det-list').innerHTML = '<div style="text-align:center;color:var(--muted);font-family:\'IBM Plex Mono\',monospace;font-size:11px;padding:20px;">Camera not active</div>';
+    document.getElementById('live-count').textContent = '0';
+    document.getElementById('fps-display').textContent = '0 FPS';
+  }
+
+  function simulateLiveDetections() {
+    if (!detecting) return;
+    frameCount++;
+
+    // Update detections every ~900ms
+    if (frameCount % 27 === 0) {
+      const n = 1 + Math.floor(Math.random() * 4);
+      const picks = [...LIVE_CLASSES].sort(() => Math.random() - 0.5).slice(0, n);
+      const list = document.getElementById('live-det-list');
+      list.innerHTML = '';
+
+      picks.forEach((name, i) => {
+        const conf = (0.70 + Math.random() * 0.28).toFixed(2);
+        const color = COLOR_HEX[COLORS[i % COLORS.length]];
+        const div = document.createElement('div');
+        div.className = 'live-det-item';
+        div.innerHTML = `
+          <div class="live-dot-col" style="background:${color}; box-shadow: 0 0 5px ${color}"></div>
+          <div class="live-det-name">${name}</div>
+          <div class="live-det-conf">${conf}</div>
+        `;
+        list.appendChild(div);
+      });
+
+      document.getElementById('live-count').textContent = picks.length;
+    }
+
+    animFrame = requestAnimationFrame(simulateLiveDetections);
+  }
+</script>
+</body>
+</html>
