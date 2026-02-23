@@ -38,7 +38,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Build and Push Docker image
         run: |
-          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/my-app
+          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/components-detector
           IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
           docker build -f Dockerfile -t $IMAGE_NAME:$IMAGE_TAG .
           docker tag $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:latest
@@ -52,7 +52,7 @@ jobs:
     steps:
       - name: Pull and restart container
         run: |
-          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/my-app
+          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/components-detector
           IMAGE_TAG=$(echo $GITHUB_SHA | cut -c1-7)
           docker pull $IMAGE_NAME:$IMAGE_TAG
           docker stop my-app || true
